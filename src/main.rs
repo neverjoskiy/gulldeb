@@ -16,6 +16,12 @@ struct Cli {
     /// Only convert; do not run pacman -U
     #[arg(long = "no-install")]
     no_install: bool,
+    /// Skip dependency availability checks (faster)
+    #[arg(long = "skip-deps")]
+    skip_deps: bool,
+    /// zstd compression level (1-19, lower = faster). Default 6
+    #[arg(long = "compression-level", default_value_t = 6)]
+    compression_level: i32,
 }
 
 const DEP_MAP: &[(&str, &str)] = &[
@@ -179,7 +185,7 @@ fn main() -> Result<()> {
     ok(&format!("Desc      : {}", pkgdesc));
 
     step(3, "Resolving dependencies");
-    let (found_deps, skipped_deps) = map_deps(&depends_str);
+    let (found_deps, skipped_deps) = map_deps(&depends_str, cli.skip_deps);
     if found_deps.is_empty() && skipped_deps.is_empty() {
         ok("No dependencies declared");
     } else {
@@ -222,7 +228,7 @@ fn main() -> Result<()> {
     let archive_path = out_dir.join(&archive_name);
 
     let sp = spinner(&format!("Compressing → {}", archive_name));
-    create_archive(pkg_root, &archive_path)?;
+    create_archive(pkg_root, &archive_path, cli.compression_level)?;
     let m = format!("Created {}", archive_path.display());
     sp.finish_with_message(m);
 
@@ -359,12 +365,14 @@ fn map_arch(a: &str) -> String {
     }
 }
 
-fn map_deps(depends: &str) -> (Vec<String>, Vec<String>) {
+fn map_deps(depends: &str, skip_deps: bool) -> (Vec<String>, Vec<String>) {
     let mut found = Vec::new();
     let mut skipped = Vec::new();
     if depends.trim().is_empty() {
         return (found, skipped);
     }
+    // First pass: collect unique mapped deps
+    let mut mapped_list: Vec<String> = Vec::new();
     for part in depends.split(',') {
         let alt = part.split('|').next().unwrap_or("").trim();
         let name_part = alt.split('(').next().unwrap_or(alt).trim();
@@ -378,26 +386,72 @@ fn map_deps(depends: &str) -> (Vec<String>, Vec<String>) {
             .find(|(d, _)| *d == name)
             .map(|(_, a)| a.to_string())
             .unwrap_or_else(|| name.to_string());
+        if !mapped_list.contains(&mapped) {
+            mapped_list.push(mapped);
+        }
+    }
 
-        let sp = spinner(&format!("Checking {}...", mapped));
-        let available = pkg_available(&mapped);
-        if available {
-            let m = format!("{}  ✓", mapped);
-            sp.finish_with_message(m);
+    if skip_deps {
+        found.extend(mapped_list);
+        return (found, skipped);
+    }
+
+    // Batch check availability in a single pacman invocation (much faster)
+    let sp = spinner(&format!("Checking {} dependencies...", mapped_list.len()));
+    let available_set = batch_available(&mapped_list);
+    sp.finish_with_message("done");
+    for mapped in mapped_list {
+        if available_set.contains(&mapped) {
+            ok(&format!("{}  ✓", mapped));
             if !found.contains(&mapped) {
                 found.push(mapped);
             }
         } else {
-            let m = format!("{}  ✗ (not found)", mapped);
-            sp.finish_with_message(m);
-            warn(&format!("dependency '{}' not found in Arch system/repos, skipping", mapped));
+            warn(&format!("dependency '{}' not found, skipping", mapped));
             if !skipped.contains(&mapped) {
                 skipped.push(mapped);
             }
         }
-        thread::sleep(Duration::from_millis(10));
     }
     (found, skipped)
+}
+
+fn batch_available(pkgs: &[String]) -> std::collections::HashSet<String> {
+    let mut set = std::collections::HashSet::new();
+    if pkgs.is_empty() {
+        return set;
+    }
+    // First: locally installed (fast, offline)
+    let mut args = vec!["-Qq".to_string()];
+    for p in pkgs { args.push(p.clone()); }
+    if let Ok(out) = Command::new("pacman").args(&args).output() {
+        for line in String::from_utf8_lossy(&out.stdout).lines() {
+            let name = line.trim();
+            if !name.is_empty() {
+                set.insert(name.to_string());
+            }
+        }
+    }
+    let remaining: Vec<&String> = pkgs.iter().filter(|p| !set.contains(*p)).collect();
+    if !remaining.is_empty() {
+        // One pacman -Si call for the rest (sync db)
+        let mut args2 = vec!["-Si".to_string()];
+        for p in &remaining { args2.push(p.to_string()); }
+        if let Ok(out) = Command::new("pacman").args(&args2).output() {
+            let text = String::from_utf8_lossy(&out.stdout);
+            for line in text.lines() {
+                let t = line.trim();
+                if let Some(rest) = t.strip_prefix("Name") {
+                    let name = rest.trim_start_matches(|c: char| c == ' ' || c == ':').trim();
+                    let name = name.split_whitespace().next().unwrap_or("").to_string();
+                    if !name.is_empty() && remaining.iter().any(|p| **p == name) {
+                        set.insert(name);
+                    }
+                }
+            }
+        }
+    }
+    set
 }
 
 fn pkg_available(pkg: &str) -> bool {
@@ -522,9 +576,10 @@ fn collect_files(root: &Path, current: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-fn create_archive(root: &Path, out: &Path) -> Result<()> {
+fn create_archive(root: &Path, out: &Path, level: i32) -> Result<()> {
     let file = fs::File::create(out)?;
-    let enc = zstd::stream::write::Encoder::new(file, 19)?;
+    let lvl = level.clamp(1, 19);
+    let enc = zstd::stream::write::Encoder::new(file, lvl)?;
     let mut builder = tar::Builder::new(enc);
 
     let mut entries: Vec<PathBuf> = Vec::new();
