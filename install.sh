@@ -69,13 +69,16 @@ fi
 step "Installing desktop entry"
 if [[ -f "$SCRIPT_DIR/$DESKTOP_FILE" ]]; then
     install -m 0644 "$SCRIPT_DIR/$DESKTOP_FILE" "$APP_DIR/$DESKTOP_FILE"
+    # Patch Exec to absolute path so Dolphin/Nautilus can find the binary
+    # even when ~/.local/bin is not in the session PATH.
+    sed -i "s|^Exec=.*|Exec=$INSTALL_DIR/$BIN_NAME %f|" "$APP_DIR/$DESKTOP_FILE"
 else
     cat > "$APP_DIR/$DESKTOP_FILE" <<EOF
 [Desktop Entry]
 Type=Application
 Name=GullDeb
 Comment=Convert and install Debian .deb packages on Arch Linux
-Exec=gulldeb %f
+Exec=$INSTALL_DIR/$BIN_NAME %f
 Terminal=true
 MimeType=application/vnd.debian.binary-package;
 Icon=package-x-generic
