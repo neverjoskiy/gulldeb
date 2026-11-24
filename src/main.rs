@@ -159,7 +159,7 @@ fn extract_deb(deb: &Path, control_dir: &Path, data_dir: &Path) -> Result<()> {
     let mut archive = ar::Archive::new(file);
     while let Some(entry_res) = archive.next_entry() {
         let mut entry = entry_res?;
-        let raw_name = String::from_utf8_lossy(entry.header().identifier()).to_string();
+        let raw_name = entry.header().identifier().to_string();
         let name = raw_name.trim_matches(|c: char| c.is_whitespace() || c == '/').to_string();
 
         let mut buf = Vec::new();
@@ -202,9 +202,10 @@ fn parse_control(text: &str) -> std::collections::BTreeMap<String, String> {
     for line in text.lines() {
         if line.starts_with(' ') || line.starts_with('\t') {
             if let Some(k) = &current_key {
-                let v = map.get_mut(k).unwrap();
-                v.push('\n');
-                v.push_str(line.trim());
+                if let Some(v) = map.get_mut(k) {
+                    v.push('\n');
+                    v.push_str(line.trim());
+                }
             }
         } else if let Some((k, v)) = line.split_once(':') {
             let key = k.trim().to_string();
