@@ -1,6 +1,6 @@
 use anyhow::{anyhow, bail, Result};
 use clap::Parser;
-use indicatif::{ProgressBar, ProgressStyle, Spinner};
+use indicatif::{ProgressBar, ProgressStyle};
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -70,8 +70,9 @@ fn warn(msg: &str) {
     eprintln!("   ⚠  {}", msg);
 }
 
-fn spinner(msg: &str) -> Spinner {
-    let sp = Spinner::new(ProgressStyle::with_template("{spinner:.cyan} {msg}").unwrap());
+fn spinner(msg: &str) -> ProgressBar {
+    let sp = ProgressBar::new_spinner();
+    sp.set_style(ProgressStyle::with_template("{spinner:.cyan} {msg}").unwrap());
     sp.set_message(msg.to_string());
     sp.enable_steady_tick(Duration::from_millis(80));
     sp
