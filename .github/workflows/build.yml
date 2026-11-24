@@ -3,6 +3,7 @@ name: Build
 on:
   push:
     branches: [main, master]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -23,3 +24,30 @@ jobs:
         with:
           name: gulldeb
           path: target/release/gulldeb
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+      - name: Build release
+        run: cargo build --release
+      - name: Package
+        run: |
+          cd target/release
+          cp gulldeb gulldeb.bin
+          sha256sum gulldeb > gulldeb.sha256
+          mv gulldeb gulldeb.tmp && mv gulldeb.tmp gulldeb
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            target/release/gulldeb
+            target/release/gulldeb.sha256
+          generate_release_notes: true
