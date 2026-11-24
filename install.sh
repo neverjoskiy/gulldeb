@@ -23,10 +23,15 @@ step() { printf '\n%s➜ %s%s\n' "$BOLD$CYAN" "$*" "$RESET"; }
 step "GullDeb installer"
 
 # ---- Detect source tree vs. standalone run ----
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HAVE_SOURCE=0
-if [[ -f "$SCRIPT_DIR/Cargo.toml" ]]; then
-    HAVE_SOURCE=1
+SCRIPT_DIR=""
+# Detect whether we are running from a cloned source tree.
+# When piped via `curl | bash`, $0 is "bash"/"sh" and there is no source tree.
+if [[ -n "${0:-}" ]] && [[ -f "${0:-}" ]]; then
+    SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+    if [[ -f "$SCRIPT_DIR/Cargo.toml" ]]; then
+        HAVE_SOURCE=1
+    fi
 fi
 
 mkdir -p "$INSTALL_DIR" "$APP_DIR"
@@ -67,7 +72,7 @@ fi
 
 # ---- Desktop entry ----
 step "Installing desktop entry"
-if [[ -f "$SCRIPT_DIR/$DESKTOP_FILE" ]]; then
+if [[ -n "$SCRIPT_DIR" && -f "$SCRIPT_DIR/$DESKTOP_FILE" ]]; then
     install -m 0644 "$SCRIPT_DIR/$DESKTOP_FILE" "$APP_DIR/$DESKTOP_FILE"
     # Patch Exec to absolute path so Dolphin/Nautilus can find the binary
     # even when ~/.local/bin is not in the session PATH.
