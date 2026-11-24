@@ -1,0 +1,25 @@
+name: Build
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build --release
+      - name: Run tests
+        run: cargo test --release
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gulldeb
+          path: target/release/gulldeb

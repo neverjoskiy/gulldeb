@@ -1,0 +1,23 @@
+[package]
+name = "gulldeb"
+version = "0.1.0"
+edition = "2021"
+authors = ["neverjoskiy"]
+description = "Convert Debian .deb packages into Arch Linux .pkg.tar.zst packages"
+license = "MIT"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+ar = "0.1"
+tar = "0.4"
+flate2 = "1"
+xz2 = "0.1"
+zstd = "0.13"
+tempfile = "3"
+chrono = "0.4"
+anyhow = "1"
+thiserror = "1"
+
+[[bin]]
+name = "gulldeb"
+path = "src/main.rs"

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=GullDeb
+Comment=Convert and install Debian .deb packages on Arch Linux
+Exec=gulldeb %f
+Terminal=true
+MimeType=application/vnd.debian.binary-package;
+Icon=package-x-generic
+Categories=System;PackageManager;
+StartupNotify=true
