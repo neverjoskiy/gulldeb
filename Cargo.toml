@@ -16,7 +16,6 @@ zstd = "0.13"
 tempfile = "3"
 chrono = "0.4"
 anyhow = "1"
-thiserror = "1"
 
 [[bin]]
 name = "gulldeb"
