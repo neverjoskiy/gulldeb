@@ -171,7 +171,8 @@ fn main() -> Result<()> {
     }
     let content = generate_pkginfo(&pkgname, &pkgver, &pkgdesc, &url, &arch, builddate, size, &found_deps);
     fs::write(pkg_root.join(".PKGINFO"), &content)?;
-    sp.finish_with_message(&format!("size = {} bytes", size));
+    let m = format!("size = {} bytes", size);
+    sp.finish_with_message(m);
     ok(".PKGINFO written");
 
     step(6, "Building .pkg.tar.zst archive");
@@ -181,7 +182,8 @@ fn main() -> Result<()> {
 
     let sp = spinner(&format!("Compressing → {}", archive_name));
     create_archive(pkg_root, &archive_path)?;
-    sp.finish_with_message(&format!("Created {}", archive_path.display()));
+    let m = format!("Created {}", archive_path.display());
+    sp.finish_with_message(m);
 
     println!();
     println!("╔════════════════════════════════════════════════════╗");
@@ -331,12 +333,14 @@ fn map_deps(depends: &str) -> (Vec<String>, Vec<String>) {
         let sp = spinner(&format!("Checking {}...", mapped));
         let available = pkg_available(&mapped);
         if available {
-            sp.finish_with_message(&format!("{}  ✓", mapped));
+            let m = format!("{}  ✓", mapped);
+            sp.finish_with_message(m);
             if !found.contains(&mapped) {
                 found.push(mapped);
             }
         } else {
-            sp.finish_with_message(&format!("{}  ✗ (not found)", mapped));
+            let m = format!("{}  ✗ (not found)", mapped);
+            sp.finish_with_message(m);
             warn(&format!("dependency '{}' not found in Arch system/repos, skipping", mapped));
             if !skipped.contains(&mapped) {
                 skipped.push(mapped);
