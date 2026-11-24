@@ -158,3 +158,4 @@ echo "  gulldeb /path/to/package.deb            # convert + install"
 echo "  gulldeb /path/to/package.deb --no-install  # convert only"
 echo
 echo "Double-click any .deb file in your file manager to launch GullDeb."
+# cache bust 1795523013
