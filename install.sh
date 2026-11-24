@@ -40,8 +40,10 @@ if [[ $HAVE_SOURCE -eq 1 ]] && command -v cargo >/dev/null 2>&1; then
 else
     step "Downloading latest release binary"
     # Resolve latest tag
-    LATEST="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
-        | grep -m1 '"tag_name"' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')"
+    REL_JSON="$(mktemp)"
+    curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" -o "$REL_JSON" || true
+    LATEST="$(sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' "$REL_JSON" | head -n1)"
+    rm -f "$REL_JSON"
     if [[ -z "$LATEST" ]]; then
         err "Could not determine latest release. Install from source instead:"
         err "  git clone https://github.com/$REPO && cd gulldeb && ./install.sh"
