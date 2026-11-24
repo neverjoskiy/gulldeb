@@ -22,6 +22,9 @@ struct Cli {
     /// zstd compression level (1-19, lower = faster). Default 6
     #[arg(long = "compression-level", default_value_t = 6)]
     compression_level: i32,
+    /// Keep the .pkg.tar.zst archive after successful installation
+    #[arg(long = "keep-archive")]
+    keep_archive: bool,
 }
 
 const DEP_MAP: &[(&str, &str)] = &[
@@ -259,6 +262,10 @@ fn main() -> Result<()> {
             bail!("pacman installation failed with status {}", status);
         }
         ok("Installation completed");
+        if !cli.keep_archive {
+            let _ = fs::remove_file(&archive_path);
+            ok(&format!("Removed archive {}", archive_path.display()));
+        }
     } else {
         println!();
         println!("   ℹ️   --no-install set, skipping pacman installation.");
