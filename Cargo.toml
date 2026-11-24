@@ -1,6 +1,6 @@
 [package]
 name = "gulldeb"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["neverjoskiy"]
 description = "Convert Debian .deb packages into Arch Linux .pkg.tar.zst packages"
