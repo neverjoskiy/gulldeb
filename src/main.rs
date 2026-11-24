@@ -1,9 +1,12 @@
 use anyhow::{anyhow, bail, Result};
 use clap::Parser;
+use indicatif::{ProgressBar, ProgressStyle, Spinner};
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::thread;
+use std::time::Duration;
 
 #[derive(Parser, Debug)]
 #[command(name = "gulldeb", version, about = "Convert a Debian .deb package into an Arch Linux .pkg.tar.zst package")]
@@ -52,6 +55,28 @@ const DEP_MAP: &[(&str, &str)] = &[
     ("libudev1", "systemd-libs"),
 ];
 
+fn step(n: u8, title: &str) {
+    println!();
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    println!("  ➜  Step {}: {}", n, title);
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+}
+
+fn ok(msg: &str) {
+    println!("   ✓  {}", msg);
+}
+
+fn warn(msg: &str) {
+    eprintln!("   ⚠  {}", msg);
+}
+
+fn spinner(msg: &str) -> Spinner {
+    let sp = Spinner::new(ProgressStyle::with_template("{spinner:.cyan} {msg}").unwrap());
+    sp.set_message(msg.to_string());
+    sp.enable_steady_tick(Duration::from_millis(80));
+    sp
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
@@ -60,15 +85,25 @@ fn main() -> Result<()> {
         bail!("input file not found: {}", deb.display());
     }
 
+    println!();
+    println!("╔════════════════════════════════════════════════════╗");
+    println!("║              GullDeb  •  .deb → .pkg.tar.zst       ║");
+    println!("╚════════════════════════════════════════════════════╝");
+    println!("  📦  {}", deb.display());
+
     let tmp = tempfile::tempdir()?;
     let control_dir = tmp.path().join("control");
     let data_dir = tmp.path().join("data");
     fs::create_dir_all(&control_dir)?;
     fs::create_dir_all(&data_dir)?;
 
-    println!("GullDeb: extracting {}", deb.display());
+    step(1, "Extracting .deb archive");
+    let sp = spinner("Reading ar archive members...");
     extract_deb(deb, &control_dir, &data_dir)?;
+    sp.finish_with_message("Extracted control.tar.* and data.tar.*");
+    ok("control/ and data/ unpacked");
 
+    step(2, "Parsing package metadata");
     let control_path = find_file(&control_dir, "control")
         .ok_or_else(|| anyhow!("control file not found in .deb"))?;
     let control_text = fs::read_to_string(&control_path)?;
@@ -90,26 +125,43 @@ fn main() -> Result<()> {
     let arch = map_arch(&arch_raw);
     let desc = meta.get("Description").cloned().unwrap_or_default();
     let pkgdesc = desc.lines().next().unwrap_or("").to_string();
-    let url = meta.get("Homepage").cloned().unwrap_or_else(|| "https://github.com/neverjoskiy/gulldeb".to_string());
+    let url = meta
+        .get("Homepage")
+        .cloned()
+        .unwrap_or_else(|| "https://github.com/neverjoskiy/gulldeb".to_string());
     let depends_str = meta.get("Depends").cloned().unwrap_or_default();
 
-    let (found_deps, skipped_deps) = map_deps(&depends_str);
+    ok(&format!("Package   : {}", pkgname));
+    ok(&format!("Version   : {}  →  {}", raw_version, pkgver));
+    ok(&format!("Arch      : {}  →  {}", arch_raw, arch));
+    ok(&format!("Desc      : {}", pkgdesc));
 
-    // Fix library paths: usr/lib/x86_64-linux-gnu -> usr/lib
+    step(3, "Resolving dependencies");
+    let (found_deps, skipped_deps) = map_deps(&depends_str);
+    if found_deps.is_empty() && skipped_deps.is_empty() {
+        ok("No dependencies declared");
+    } else {
+        ok(&format!("Found   : {}", if found_deps.is_empty() { "(none)".to_string() } else { found_deps.join(", ") }));
+        if !skipped_deps.is_empty() {
+            warn(&format!("Skipped : {}", skipped_deps.join(", ")));
+        }
+    }
+
+    step(4, "Fixing library paths");
     let lib_src = data_dir.join("usr/lib/x86_64-linux-gnu");
     let lib_dst = data_dir.join("usr/lib");
     move_dir_contents(&lib_src, &lib_dst)?;
     let _ = fs::remove_dir(&lib_src);
-    // Also handle aarch64 variant just in case
     let lib_src2 = data_dir.join("usr/lib/aarch64-linux-gnu");
     move_dir_contents(&lib_src2, &lib_dst)?;
     let _ = fs::remove_dir(&lib_src2);
+    ok("usr/lib/*-linux-gnu → usr/lib");
 
     let pkg_root = &data_dir;
-
     let builddate = chrono::Utc::now().timestamp();
 
-    // Fixed-point size computation including .PKGINFO itself.
+    step(5, "Generating .PKGINFO");
+    let sp = spinner("Computing installed size...");
     let mut size: u64 = 0;
     for _ in 0..6 {
         let content = generate_pkginfo(&pkgname, &pkgver, &pkgdesc, &url, &arch, builddate, size, &found_deps);
@@ -118,27 +170,36 @@ fn main() -> Result<()> {
     }
     let content = generate_pkginfo(&pkgname, &pkgver, &pkgdesc, &url, &arch, builddate, size, &found_deps);
     fs::write(pkg_root.join(".PKGINFO"), &content)?;
+    sp.finish_with_message(&format!("size = {} bytes", size));
+    ok(".PKGINFO written");
 
+    step(6, "Building .pkg.tar.zst archive");
     let out_dir = deb.parent().unwrap_or_else(|| Path::new("."));
     let archive_name = format!("{}-{}-{}.pkg.tar.zst", pkgname, pkgver, arch);
     let archive_path = out_dir.join(&archive_name);
 
-    println!("GullDeb: creating {}", archive_path.display());
+    let sp = spinner(&format!("Compressing → {}", archive_name));
     create_archive(pkg_root, &archive_path)?;
+    sp.finish_with_message(&format!("Created {}", archive_path.display()));
 
     println!();
-    println!("========== GullDeb Summary ==========");
-    println!("  Package : {}", pkgname);
-    println!("  Version : {}", pkgver);
-    println!("  Arch    : {}", arch);
-    println!("  Desc    : {}", pkgdesc);
-    println!("  Found deps   : {}", found_deps.join(", "));
-    println!("  Skipped deps : {}", skipped_deps.join(", "));
-    println!("  Archive : {}", archive_path.display());
-    println!("=====================================");
+    println!("╔════════════════════════════════════════════════════╗");
+    println!("║                  GullDeb Summary                   ║");
+    println!("╠════════════════════════════════════════════════════╣");
+    println!("║  📦 Package : {:<38}║", pkgname);
+    println!("║  🏷  Version : {:<38}║", pkgver);
+    println!("║  🏗  Arch    : {:<38}║", arch);
+    println!("║  📝 Desc    : {:<38}║", truncate(&pkgdesc, 38));
+    println!("║  🔗 Deps    : {:<38}║", truncate(&found_deps.join(", "), 38));
+    if !skipped_deps.is_empty() {
+        println!("║  ⚠  Skipped : {:<38}║", truncate(&skipped_deps.join(", "), 38));
+    }
+    println!("║  💾 Archive : {:<38}║", truncate(&archive_path.display().to_string(), 38));
+    println!("╚════════════════════════════════════════════════════╝");
 
     if !cli.no_install {
-        println!("GullDeb: installing via sudo pacman -U ...");
+        step(7, "Installing via pacman");
+        println!("   🔐  sudo pacman -U {}", archive_path.display());
         let status = Command::new("sudo")
             .arg("pacman")
             .arg("-U")
@@ -147,11 +208,25 @@ fn main() -> Result<()> {
         if !status.success() {
             bail!("pacman installation failed with status {}", status);
         }
+        ok("Installation completed");
     } else {
-        println!("GullDeb: --no-install set, skipping installation.");
+        println!();
+        println!("   ℹ️   --no-install set, skipping pacman installation.");
     }
 
+    println!();
+    println!("   ✨  Done. Thank you for using GullDeb!");
     Ok(())
+}
+
+fn truncate(s: &str, n: usize) -> String {
+    if s.chars().count() <= n {
+        format!("{:<width$}", s, width = n)
+    } else {
+        let mut out: String = s.chars().take(n.saturating_sub(1)).collect();
+        out.push('…');
+        out
+    }
 }
 
 fn extract_deb(deb: &Path, control_dir: &Path, data_dir: &Path) -> Result<()> {
@@ -170,7 +245,6 @@ fn extract_deb(deb: &Path, control_dir: &Path, data_dir: &Path) -> Result<()> {
         } else if name.starts_with("data.tar") {
             unpack_tar_bytes(&buf, &name, data_dir)?;
         }
-        // ignore other members (debian-binary, etc.)
     }
     Ok(())
 }
@@ -240,11 +314,8 @@ fn map_deps(depends: &str) -> (Vec<String>, Vec<String>) {
         return (found, skipped);
     }
     for part in depends.split(',') {
-        // first alternative
         let alt = part.split('|').next().unwrap_or("").trim();
-        // strip version constraints in parentheses
         let name_part = alt.split('(').next().unwrap_or(alt).trim();
-        // take first token
         let name = name_part.split_whitespace().next().unwrap_or("").trim();
         let name = name.split(':').next().unwrap_or(name).trim();
         if name.is_empty() {
@@ -256,16 +327,21 @@ fn map_deps(depends: &str) -> (Vec<String>, Vec<String>) {
             .map(|(_, a)| a.to_string())
             .unwrap_or_else(|| name.to_string());
 
-        if pkg_available(&mapped) {
+        let sp = spinner(&format!("Checking {}...", mapped));
+        let available = pkg_available(&mapped);
+        if available {
+            sp.finish_with_message(&format!("{}  ✓", mapped));
             if !found.contains(&mapped) {
                 found.push(mapped);
             }
         } else {
-            eprintln!("Warning: dependency '{}' not found in Arch system/repos, skipping", mapped);
+            sp.finish_with_message(&format!("{}  ✗ (not found)", mapped));
+            warn(&format!("dependency '{}' not found in Arch system/repos, skipping", mapped));
             if !skipped.contains(&mapped) {
                 skipped.push(mapped);
             }
         }
+        thread::sleep(Duration::from_millis(10));
     }
     (found, skipped)
 }
@@ -405,11 +481,16 @@ fn create_archive(root: &Path, out: &Path) -> Result<()> {
         entries.insert(0, p);
     }
 
+    let pb = ProgressBar::new(entries.len() as u64);
+    pb.set_style(ProgressStyle::with_template("   {bar:30.cyan/blue} {pos}/{len} {msg}").unwrap());
     for rel in entries {
         let full = root.join(&rel);
         let rel_str = rel.to_string_lossy().to_string();
+        pb.set_message(rel_str.clone());
         builder.append_path_with_name(&full, &rel_str)?;
+        pb.inc(1);
     }
+    pb.finish_with_message("archive entries added");
 
     let enc = builder.into_inner()?;
     enc.finish()?;
