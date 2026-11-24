@@ -1,7 +1,6 @@
 use anyhow::{anyhow, bail, Result};
 use clap::Parser;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -409,45 +408,7 @@ fn create_archive(root: &Path, out: &Path) -> Result<()> {
     for rel in entries {
         let full = root.join(&rel);
         let rel_str = rel.to_string_lossy().to_string();
-        if full.is_symlink() {
-            let target = fs::read_link(&full)?;
-            let mut header = tar::Header::new_gnu();
-            header.set_path(&rel_str)?;
-            header.set_entry_type(tar::EntryType::Symlink);
-            header.set_size(0);
-            header.set_mode(0o777);
-            header.set_mtime(0);
-            header.set_uid(0);
-            header.set_gid(0);
-            header.set_cksum();
-            builder.append_link(&mut header, target)?;
-        } else if full.is_dir() {
-            let mut header = tar::Header::new_gnu();
-            header.set_path(format!("{}/", rel_str))?;
-            header.set_entry_type(tar::EntryType::Directory);
-            header.set_size(0);
-            header.set_mode(0o755);
-            header.set_mtime(0);
-            header.set_uid(0);
-            header.set_gid(0);
-            header.set_cksum();
-            builder.append(&mut header, std::io::empty())?;
-        } else {
-            let meta = fs::metadata(&full)?;
-            let mode = meta.permissions().mode();
-            let size = meta.len();
-            let mut header = tar::Header::new_gnu();
-            header.set_path(&rel_str)?;
-            header.set_entry_type(tar::EntryType::Regular);
-            header.set_size(size);
-            header.set_mode(mode);
-            header.set_mtime(0);
-            header.set_uid(0);
-            header.set_gid(0);
-            header.set_cksum();
-            let mut f = fs::File::open(&full)?;
-            builder.append(&mut header, &mut f)?;
-        }
+        builder.append_path_with_name(&full, &rel_str)?;
     }
 
     let enc = builder.into_inner()?;
