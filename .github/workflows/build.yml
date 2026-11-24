@@ -50,4 +50,5 @@ jobs:
           files: |
             target/release/gulldeb
             target/release/gulldeb.sha256
+            install.sh
           generate_release_notes: true
