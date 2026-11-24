@@ -53,6 +53,47 @@ const DEP_MAP: &[(&str, &str)] = &[
     ("libselinux1", "libselinux"),
     ("libsystemd0", "systemd-libs"),
     ("libudev1", "systemd-libs"),
+    ("libatk1.0-0", "atk"),
+    ("libatk-bridge2.0-0", "at-spi2-core"),
+    ("libatspi2.0-0", "at-spi2-core"),
+    ("libcairo2", "cairo"),
+    ("libcups2", "libcups"),
+    ("libcurl3-gnutls", "curl"),
+    ("libglib2.0-0", "glib2"),
+    ("libnspr4", "nspr"),
+    ("libpango-1.0-0", "pango"),
+    ("libxcb1", "libxcb"),
+    ("libxkbcommon0", "libxkbcommon"),
+    ("libxkbfile1", "libxkbfile"),
+    ("libgtk-3-0", "gtk3"),
+    ("libgtk-4-1", "gtk4"),
+    ("libnss3", "nss"),
+    ("libasound2", "alsa-lib"),
+    ("libxss1", "libxss"),
+    ("libgbm1", "mesa"),
+    ("zlib1g", "zlib"),
+    ("libstdc++6", "gcc-libs"),
+    ("libgcc-s1", "gcc-libs"),
+    ("libpng16-16", "libpng"),
+    ("libjpeg-turbo8", "libjpeg-turbo"),
+    ("libfreetype6", "freetype2"),
+    ("libfontconfig1", "fontconfig"),
+    ("libx11-6", "libx11"),
+    ("libxext6", "libxext"),
+    ("libxrender1", "libxrender"),
+    ("libxi6", "libxi"),
+    ("libxrandr2", "libxrandr"),
+    ("libxfixes3", "libxfixes"),
+    ("libxdamage1", "libxdamage"),
+    ("libxcomposite1", "libxcomposite"),
+    ("libxcursor1", "libxcursor"),
+    ("libxinerama1", "libxinerama"),
+    ("libdbus-1-3", "dbus"),
+    ("libexpat1", "expat"),
+    ("libuuid1", "util-linux-libs"),
+    ("libpcre3", "pcre"),
+    ("libselinux1", "libselinux"),
+    ("libsystemd0", "systemd-libs"),
 ];
 
 fn step(n: u8, title: &str) {
@@ -297,7 +338,15 @@ fn parse_control(text: &str) -> std::collections::BTreeMap<String, String> {
 }
 
 fn sanitize_version(v: &str) -> String {
-    v.trim().replace('-', ".").replace(':', ".")
+    // pacman requires pkgver to contain a package release: "<version>-<pkgrel>"
+    // (pkgrel must be an integer). Debian revisions use '-', which we flatten
+    // into '.', so append a default pkgrel of 1 when none is present.
+    let base = v.trim().replace('-', ".").replace(':', ".");
+    if base.contains('-') {
+        base
+    } else {
+        format!("{}-1", base)
+    }
 }
 
 fn map_arch(a: &str) -> String {
