@@ -197,7 +197,7 @@ fn unpack_tar_bytes(buf: &[u8], name: &str, dest: &Path) -> Result<()> {
 }
 
 fn parse_control(text: &str) -> std::collections::BTreeMap<String, String> {
-    let mut map = std::collections::BTreeMap::new();
+    let mut map: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
     let mut current_key: Option<String> = None;
     for line in text.lines() {
         if line.starts_with(' ') || line.starts_with('\t') {
